@@ -4,11 +4,12 @@
 
 Guardrails adds safety checks to Pi so agents are less likely to read secrets, write protected files, access paths outside the workspace, or run dangerous shell commands by accident.
 
-This package installs four Pi extensions:
+This package installs five Pi extensions:
 
 - **guardrails** for file protection policies, settings, onboarding, and examples.
 - **path-access** for controlling access outside the current workspace.
 - **permission-gate** for confirming or blocking risky shell commands.
+- **guidance** for soft-blocking commands with a message to the model, with an opt-in escalation to a user prompt.
 - **herdr** for reporting Guardrails approval prompts to Herdr.
 
 ## Install
@@ -74,6 +75,35 @@ The `permission-gate` extension detects dangerous bash commands before they run.
 It catches built-in risky patterns like recursive deletes, privileged commands, disk formatting, broad permission changes, and configured custom patterns. You can allow once, allow for the session, deny, decline and stop (which also aborts the current turn), or configure auto-deny rules.
 
 [![Guardrails permission gate walkthrough](https://assets.aliou.me/github/aliou/pi-guardrails/v0.12.0/permission-gate.gif)](https://assets.aliou.me/github/aliou/pi-guardrails/v0.12.0/permission-gate.mp4)
+
+### guidance
+
+The `guidance` extension soft-blocks bash commands that match configured patterns and returns a guidance message to the model **without prompting you**. Use it to steer the agent away from actions you almost never want (for example `git checkout`, which can destroy uncommitted work) while leaving an escape hatch.
+
+When a command matches, the call is blocked and the pattern's `message` is returned verbatim to the model. If the model still needs the command, it re-runs it with a trailing `# guardrails:approve <reason>` marker; the extension then opens a normal approval prompt (Allow once / Allow for session / Deny / Decline and stop) showing the command **and the model's stated reason**, so you decide with context. The trailing marker is a bash comment, so the approved command runs unchanged.
+
+This extension is intentionally self-contained (its own `guidance.json` config, its own matcher, no dependency on the other extensions) so it can be maintained independently.
+
+Configure it in `~/.pi/agent/extensions/guidance.json` (global) or `.pi/extensions/guidance.json` (project):
+
+```json
+{
+  "enabled": true,
+  "patterns": [
+    {
+      "pattern": "git checkout",
+      "message": "git checkout is blocked here — reverse your own edits with the edit tool instead. If you truly need it, re-run with a trailing `# guardrails:approve <reason>` and the user will be asked."
+    },
+    {
+      "pattern": "^rm -rf /",
+      "message": "Refusing to wipe from root. Re-run with `# guardrails:approve <reason>` to ask the user.",
+      "regex": true
+    }
+  ]
+}
+```
+
+Each pattern is matched as a substring of the raw command by default, or as a full regular expression when `regex` is `true`. Patterns from the global and project files are combined.
 
 ## Extension events
 
