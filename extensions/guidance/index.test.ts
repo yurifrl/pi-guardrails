@@ -13,6 +13,7 @@ import {
   type PartialFuncReturn,
 } from "@golevelup/ts-vitest";
 import { assert, beforeEach, describe, expect, it, vi } from "vitest";
+import { configLoader } from "./config";
 import guidance from "./index";
 
 vi.mock("./config", () => {
@@ -21,6 +22,7 @@ vi.mock("./config", () => {
       load: vi.fn().mockResolvedValue(undefined),
       getConfig: vi.fn(() => ({
         enabled: true,
+        proceedHint: "PROCEED_HINT",
         patterns: [
           { pattern: "git checkout", message: "GUIDANCE: reverse your edits" },
         ],
@@ -42,11 +44,7 @@ function createCtx(overrides: PartialFuncReturn<ExtensionContext> = {}) {
   return createMock<ExtensionContext>({
     hasUI: true,
     mode: "tui",
-    ui: {
-      custom: vi.fn().mockResolvedValue(undefined),
-      select: vi.fn().mockResolvedValue(undefined),
-      notify: vi.fn(),
-    },
+    ui: { custom: vi.fn(), select: vi.fn(), notify: vi.fn() },
     abort: vi.fn(),
     ...overrides,
   });
@@ -87,88 +85,32 @@ describe("guidance extension hook", () => {
     expect(await handler(event, createCtx())).toBeUndefined();
   });
 
-  it("soft-blocks a matching command with the verbatim message", async () => {
+  it("returns the guidance with the proceed hint appended on the first attempt", async () => {
     assert(handler);
     const result = await handler(bashEvent("git checkout main"), createCtx());
     expect(result).toEqual({
       block: true,
-      reason: "GUIDANCE: reverse your edits",
+      reason: "GUIDANCE: reverse your edits\n\nPROCEED_HINT",
     });
   });
 
-  it("blocks escalation when no UI is available", async () => {
+  it("steps aside when the model passes the proceed marker", async () => {
     assert(handler);
-    const ctx = createCtx({ hasUI: false });
     const result = await handler(
-      bashEvent("git checkout main # guardrails:approve because reasons"),
-      ctx,
-    );
-    assert(result && "block" in result);
-    expect(result.block).toBe(true);
-    expect(result.reason).toContain("GUIDANCE: reverse your edits");
-    expect(result.reason).toContain("no interactive UI");
-  });
-
-  it("allows once when the user approves the escalation", async () => {
-    assert(handler);
-    const ctx = createCtx({
-      ui: { select: vi.fn().mockResolvedValue("Allow once"), notify: vi.fn() },
-    });
-    const result = await handler(
-      bashEvent("git checkout main # guardrails:approve need it"),
-      ctx,
+      bashEvent("git checkout main # guardrails:approve discarding experiment"),
+      createCtx(),
     );
     expect(result).toBeUndefined();
   });
 
-  it("allows subsequent identical commands after Allow for session", async () => {
+  it("omits the hint when proceedHint is empty", async () => {
+    vi.mocked(configLoader.getConfig).mockReturnValueOnce({
+      enabled: true,
+      proceedHint: "",
+      patterns: [{ pattern: "git checkout", message: "BARE" }],
+    });
     assert(handler);
-    const ctx = createCtx({
-      ui: {
-        select: vi.fn().mockResolvedValue("Allow for session"),
-        notify: vi.fn(),
-      },
-    });
-    expect(
-      await handler(bashEvent("git checkout main # guardrails:approve x"), ctx),
-    ).toBeUndefined();
-    // A later plain call to the same base command is allowed without prompting.
-    const plainCtx = createCtx();
-    expect(
-      await handler(bashEvent("git checkout main"), plainCtx),
-    ).toBeUndefined();
-    expect(plainCtx.ui.select).not.toHaveBeenCalled();
-  });
-
-  it("re-blocks with the guidance message on Deny", async () => {
-    assert(handler);
-    const ctx = createCtx({
-      ui: { select: vi.fn().mockResolvedValue("Deny"), notify: vi.fn() },
-    });
-    const result = await handler(
-      bashEvent("git checkout main # guardrails:approve nope"),
-      ctx,
-    );
-    expect(result).toEqual({
-      block: true,
-      reason: "GUIDANCE: reverse your edits",
-    });
-  });
-
-  it("aborts the turn on Decline and stop", async () => {
-    assert(handler);
-    const ctx = createCtx({
-      ui: {
-        select: vi.fn().mockResolvedValue("Decline and stop"),
-        notify: vi.fn(),
-      },
-    });
-    const result = await handler(
-      bashEvent("git checkout main # guardrails:approve stop"),
-      ctx,
-    );
-    assert(result && "block" in result);
-    expect(result.block).toBe(true);
-    expect(ctx.abort).toHaveBeenCalled();
+    const result = await handler(bashEvent("git checkout main"), createCtx());
+    expect(result).toEqual({ block: true, reason: "BARE" });
   });
 });

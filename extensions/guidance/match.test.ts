@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GuidancePattern } from "./config";
-import { matchGuidance, parseEscalation, stripEscalation } from "./match";
+import { matchGuidance, wantsToProceed } from "./match";
 
 const patterns: GuidancePattern[] = [
   { pattern: "git checkout", message: "blocked: reverse your own edits" },
@@ -27,36 +27,18 @@ describe("matchGuidance", () => {
   });
 });
 
-describe("parseEscalation", () => {
-  it("returns null without a marker", () => {
-    expect(parseEscalation("git checkout main")).toBeNull();
+describe("wantsToProceed", () => {
+  it("is false without the marker", () => {
+    expect(wantsToProceed("git checkout main")).toBe(false);
   });
 
-  it("extracts the reason after the marker", () => {
+  it("is true with the marker", () => {
     expect(
-      parseEscalation(
-        "git checkout main # guardrails:approve discarding failed experiment",
-      ),
-    ).toEqual({ reason: "discarding failed experiment" });
+      wantsToProceed("git checkout main # guardrails:approve discarding work"),
+    ).toBe(true);
   });
 
-  it("handles a marker with no reason", () => {
-    expect(parseEscalation("git checkout main # guardrails:approve")).toEqual({
-      reason: "",
-    });
-  });
-});
-
-describe("stripEscalation", () => {
-  it("removes the marker and trailing whitespace", () => {
-    expect(
-      stripEscalation(
-        "git checkout main  # guardrails:approve because reasons",
-      ),
-    ).toBe("git checkout main");
-  });
-
-  it("leaves unmarked commands untouched", () => {
-    expect(stripEscalation("git checkout main")).toBe("git checkout main");
+  it("is true with the marker and no reason", () => {
+    expect(wantsToProceed("git checkout main # guardrails:approve")).toBe(true);
   });
 });

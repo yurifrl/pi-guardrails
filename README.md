@@ -9,7 +9,7 @@ This package installs five Pi extensions:
 - **guardrails** for file protection policies, settings, onboarding, and examples.
 - **path-access** for controlling access outside the current workspace.
 - **permission-gate** for confirming or blocking risky shell commands.
-- **guidance** for soft-blocking commands with a message to the model, with an opt-in escalation to a user prompt.
+- **guidance** for steering the agent with a message before a command hits a block or confirmation prompt.
 - **herdr** for reporting Guardrails approval prompts to Herdr.
 
 ## Install
@@ -78,26 +78,25 @@ It catches built-in risky patterns like recursive deletes, privileged commands, 
 
 ### guidance
 
-The `guidance` extension soft-blocks bash commands that match configured patterns and returns a guidance message to the model **without prompting you**. Use it to steer the agent away from actions you almost never want (for example `git checkout`, which can destroy uncommitted work) while leaving an escape hatch.
+The `guidance` extension is a front layer over the block / ask-permission gates. When a bash command matches a configured pattern, guidance is returned to the model and **nothing runs and you are not prompted**. Use it to steer the agent toward the right approach before it triggers a hard block or a confirmation prompt.
 
-When a command matches, the call is blocked and the pattern's `message` is returned verbatim to the model. If the model still needs the command, it re-runs it with a trailing `# guardrails:approve <reason>` marker; the extension then opens a normal approval prompt (Allow once / Allow for session / Deny / Decline and stop) showing the command **and the model's stated reason**, so you decide with context. The trailing marker is a bash comment, so the approved command runs unchanged.
+If the model acknowledges the guidance and still needs the command, it re-runs it with a trailing `# guardrails:approve <reason>` marker. Guidance then steps aside so the command reaches the real gate: `permission-gate` blocks it (auto-deny patterns) or asks you to confirm (dangerous patterns), exactly as configured. The downstream rule decides "block vs ask"; guidance only gates the first attempt. The trailing marker is a bash comment, so an approved command runs unchanged.
 
-This extension is intentionally self-contained (its own `guidance.json` config, its own matcher, no dependency on the other extensions) so it can be maintained independently.
+A standard proceed hint is appended to every message automatically, so pattern `message` fields only need the guidance itself. Override it with a top-level `proceedHint` string, or set `proceedHint` to `""` to disable the appended line.
+
+This extension is intentionally self-contained (its own `guidance.json` config, its own matcher, no dependency on the other extensions) so it can be maintained and rebased independently. It is registered before `permission-gate` so it intercepts the first attempt.
 
 Configure it in `~/.pi/agent/extensions/guidance.json` (global) or `.pi/extensions/guidance.json` (project):
 
 ```json
 {
   "enabled": true,
+  "proceedHint": "To proceed anyway, re-run this exact command with a trailing `# guardrails:approve <reason>` to reach the normal confirmation prompt.",
   "patterns": [
     {
-      "pattern": "git checkout",
-      "message": "git checkout is blocked here — reverse your own edits with the edit tool instead. If you truly need it, re-run with a trailing `# guardrails:approve <reason>` and the user will be asked."
-    },
-    {
-      "pattern": "^rm -rf /",
-      "message": "Refusing to wipe from root. Re-run with `# guardrails:approve <reason>` to ask the user.",
-      "regex": true
+      "pattern": "git (checkout|switch)\\b",
+      "regex": true,
+      "message": "git checkout/switch can destroy uncommitted work — reverse your own edits with the edit tool instead."
     }
   ]
 }

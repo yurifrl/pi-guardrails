@@ -29,17 +29,28 @@ export interface GuidanceConfig {
   $schema?: string;
   /** Enable or disable all guidance checks. Default true. */
   enabled?: boolean;
+  /**
+   * Text appended to every guidance message, telling the model how to proceed.
+   * Set to "" to disable. Defaults to the standard proceed hint.
+   */
+  proceedHint?: string;
   /** Soft-block-with-message rules. */
   patterns?: GuidancePattern[];
 }
 
 export interface ResolvedGuidanceConfig {
   enabled: boolean;
+  proceedHint: string;
   patterns: GuidancePattern[];
 }
 
+/** Appended to every guidance message unless overridden in config. */
+export const DEFAULT_PROCEED_HINT =
+  "To proceed anyway, re-run this exact command with a trailing `# guardrails:approve <reason>` to reach the normal confirmation prompt.";
+
 const DEFAULT_CONFIG: ResolvedGuidanceConfig = {
   enabled: true,
+  proceedHint: DEFAULT_PROCEED_HINT,
   patterns: [],
 };
 
@@ -71,6 +82,9 @@ export function createGuidanceConfigLoader(): ConfigLoader<
       scopes: ["global", "local", "memory"],
       afterMerge: (resolved, global, local, memory) => {
         resolved.patterns = concatPatterns(global, local, memory);
+        const hint =
+          memory?.proceedHint ?? local?.proceedHint ?? global?.proceedHint;
+        if (typeof hint === "string") resolved.proceedHint = hint;
         return resolved;
       },
     },

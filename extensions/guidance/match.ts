@@ -5,30 +5,16 @@
  */
 import type { GuidancePattern } from "./config";
 
-/** Marker the model appends to escalate a soft block to a real user prompt. */
-const ESCALATION_MARKER = /#\s*guardrails:approve\b[ \t]*(.*)$/im;
-
-export interface Escalation {
-  /** Free-text justification the model supplied after the marker. */
-  reason: string;
-}
-
 /**
- * Detect the escalation marker in a command. Returns the model's stated
- * reason (possibly empty) or null when no marker is present.
+ * Marker the model appends to acknowledge the guidance and proceed. Its
+ * presence makes guidance step aside so the command reaches the real gate
+ * (permission-gate), which then blocks or asks as configured.
  */
-export function parseEscalation(command: string): Escalation | null {
-  const match = ESCALATION_MARKER.exec(command);
-  if (!match) return null;
-  return { reason: (match[1] ?? "").trim() };
-}
+const PROCEED_MARKER = /#\s*guardrails:approve\b/i;
 
-/**
- * Strip the escalation marker so the executed command and session-grant key
- * are stable regardless of the justification text.
- */
-export function stripEscalation(command: string): string {
-  return command.replace(ESCALATION_MARKER, "").trimEnd();
+/** True when the command carries the proceed marker. */
+export function wantsToProceed(command: string): boolean {
+  return PROCEED_MARKER.test(command);
 }
 
 function testPattern(command: string, entry: GuidancePattern): boolean {
